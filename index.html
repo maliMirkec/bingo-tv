@@ -1,0 +1,570 @@
+<!doctype html>
+<html lang="hr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bingo 15 od 90</title>
+  <style>
+    :root {
+      --bg: #10141c;
+      --panel: #1b2230;
+      --slot: #242d3f;
+      --text: #f4f6fa;
+      --muted: #9aa6bd;
+      --accent: #ffcc33;
+      --accent-text: #1a1300;
+      --focus: #4fc3ff;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+      padding: 2vh 2vw;
+      gap: 2vh;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      font-size: 4vh;
+      font-weight: 700;
+    }
+    #date {
+      color: var(--muted);
+      font-weight: 400;
+      margin-left: 1.5vw;
+    }
+    #board {
+      flex: 1;
+      position: relative;
+      min-height: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--panel);
+      border-radius: 2vh;
+      padding: 2vh;
+    }
+    #slots {
+      display: grid;
+      grid-template-columns: repeat(var(--cols, 10), var(--size, 60px));
+      grid-auto-rows: var(--size, 60px);
+      gap: var(--gap, 8px);
+    }
+    .slot {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--slot);
+      border-radius: 50%;
+      font-size: calc(var(--size, 60px) * 0.5);
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+    }
+    .slot.filled {
+      background: var(--accent);
+      color: var(--accent-text);
+    }
+    .slot.last {
+      box-shadow: 0 0 0 calc(var(--size, 60px) * 0.08) var(--text);
+    }
+    #big {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 70vh;
+      height: 70vh;
+      margin: -35vh 0 0 -35vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      background: var(--accent);
+      color: var(--accent-text);
+      font-size: 42vh;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+      opacity: 0;
+      transform: scale(0.2);
+      pointer-events: none;
+      z-index: 10;
+    }
+    #big.show {
+      opacity: 1;
+      transform: scale(1);
+      transition: transform 0.6s cubic-bezier(0.2, 1.4, 0.4, 1), opacity 0.3s;
+    }
+    #big.fly {
+      transition: transform 0.8s ease-in-out;
+    }
+    #message {
+      position: absolute;
+      inset: 0;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3vh;
+      font-size: 5vh;
+      text-align: center;
+      padding: 4vh;
+    }
+    #message.show {
+      display: flex;
+    }
+    footer {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 3vw;
+    }
+    button {
+      font: inherit;
+      font-weight: 800;
+      border: 0;
+      border-radius: 2vh;
+      cursor: pointer;
+      outline: none;
+    }
+    button:focus {
+      box-shadow: 0 0 0 1vh var(--focus);
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+    #bingo {
+      font-size: 9vh;
+      padding: 1.5vh 10vw;
+      background: var(--accent);
+      color: var(--accent-text);
+      letter-spacing: 0.1em;
+    }
+    .secondary {
+      font-size: 3.5vh;
+      padding: 2vh 3vw;
+      background: var(--slot);
+      color: var(--text);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div><span id="round">Učitavanje…</span><span id="date"></span></div>
+    <div id="counter"></div>
+  </header>
+  <main id="board">
+    <div id="slots"></div>
+    <div id="big"></div>
+    <div id="message">
+      <div id="message-text"></div>
+      <button id="retry" class="secondary" type="button">Pokušaj ponovno</button>
+    </div>
+  </main>
+  <footer>
+    <button id="bingo" type="button" disabled>BINGO</button>
+    <button id="reset" class="secondary" type="button" disabled>Nova igra</button>
+  </footer>
+  <script>
+    (function () {
+      var URL = 'https://www.lutrija.hr/hl/rezultati/bingo';
+      var GAME_ID = 7000;
+      var STORE_KEY = 'bingo-state';
+
+      var els = {
+        round: document.getElementById('round'),
+        date: document.getElementById('date'),
+        counter: document.getElementById('counter'),
+        board: document.getElementById('board'),
+        slots: document.getElementById('slots'),
+        big: document.getElementById('big'),
+        message: document.getElementById('message'),
+        messageText: document.getElementById('message-text'),
+        retry: document.getElementById('retry'),
+        bingo: document.getElementById('bingo'),
+        reset: document.getElementById('reset')
+      };
+
+      var draw = null;
+      var numbers = [];
+      var revealed = 0;
+      var busy = false;
+      var resetArmed = false;
+      var resetTimer = null;
+
+      function extractObject(text, start) {
+        var depth = 0;
+        var inString = false;
+        var escaped = false;
+        for (var i = start; i < text.length; i++) {
+          var c = text.charAt(i);
+          if (inString) {
+            if (escaped) {
+              escaped = false;
+            } else if (c === '\\') {
+              escaped = true;
+            } else if (c === '"') {
+              inString = false;
+            }
+            continue;
+          }
+          if (c === '"') {
+            inString = true;
+          } else if (c === '{') {
+            depth++;
+          } else if (c === '}') {
+            depth--;
+            if (depth === 0) {
+              return text.slice(start, i + 1);
+            }
+          }
+        }
+        return null;
+      }
+
+      function collectDraws(node, out) {
+        if (!node || typeof node !== 'object') {
+          return;
+        }
+        if (Array.isArray(node)) {
+          for (var i = 0; i < node.length; i++) {
+            collectDraws(node[i], out);
+          }
+          return;
+        }
+        if (node.gameId === GAME_ID && Array.isArray(node.results) && Array.isArray(node.results[0])) {
+          out.push(node);
+        }
+        for (var key in node) {
+          if (Object.prototype.hasOwnProperty.call(node, key)) {
+            collectDraws(node[key], out);
+          }
+        }
+      }
+
+      function parseFromSettings(html) {
+        var marker = 'const settings=';
+        var at = html.indexOf(marker);
+        if (at === -1) {
+          return [];
+        }
+        var start = html.indexOf('{', at);
+        var json = extractObject(html, start);
+        if (!json) {
+          return [];
+        }
+        var out = [];
+        collectDraws(JSON.parse(json), out);
+        return out;
+      }
+
+      function parseFallback(html) {
+        var out = [];
+        var re = /"gameId":7000[,}]/g;
+        var match;
+        while ((match = re.exec(html))) {
+          var start = html.lastIndexOf('{', match.index);
+          while (start > 0) {
+            var candidate = extractObject(html, start);
+            if (candidate && candidate.length > match.index - start) {
+              try {
+                collectDraws(JSON.parse(candidate), out);
+              } catch (e) {}
+              break;
+            }
+            start = html.lastIndexOf('{', start - 1);
+          }
+        }
+        return out;
+      }
+
+      function findLatestDraw(html) {
+        var draws = [];
+        try {
+          draws = parseFromSettings(html);
+        } catch (e) {
+          draws = [];
+        }
+        if (!draws.length) {
+          draws = parseFallback(html);
+        }
+        var best = null;
+        for (var i = 0; i < draws.length; i++) {
+          if (!best || draws[i].drawTime > best.drawTime) {
+            best = draws[i];
+          }
+        }
+        return best;
+      }
+
+      function formatDate(seconds) {
+        var date = new Date(seconds * 1000);
+        try {
+          var dayPart = new Intl.DateTimeFormat('en-GB', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            timeZone: 'Europe/Zagreb'
+          }).formatToParts(date);
+          var timePart = new Intl.DateTimeFormat('en-GB', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+            timeZone: 'Europe/Zagreb'
+          }).format(date);
+          var p = {};
+          for (var i = 0; i < dayPart.length; i++) {
+            p[dayPart[i].type] = dayPart[i].value;
+          }
+          var weekdays = ['ned.', 'pon.', 'uto.', 'sri.', 'čet.', 'pet.', 'sub.'];
+          var weekday = weekdays[new Date(Date.UTC(+p.year, +p.month - 1, +p.day)).getUTCDay()];
+          return weekday + ', ' + p.day + '.' + p.month + '.' + p.year + ' ' + timePart;
+        } catch (e) {
+          return date.toLocaleString();
+        }
+      }
+
+      function loadState() {
+        try {
+          var raw = localStorage.getItem(STORE_KEY);
+          return raw ? JSON.parse(raw) : null;
+        } catch (e) {
+          return null;
+        }
+      }
+
+      function saveState() {
+        try {
+          localStorage.setItem(STORE_KEY, JSON.stringify({ drawId: draw.drawId, revealed: revealed }));
+        } catch (e) {}
+      }
+
+      function showMessage(text, withRetry) {
+        els.messageText.textContent = text;
+        els.retry.style.display = withRetry ? '' : 'none';
+        els.message.className = 'show';
+        if (withRetry) {
+          els.retry.focus();
+        }
+      }
+
+      function hideMessage() {
+        els.message.className = '';
+      }
+
+      function layoutSlots() {
+        var n = numbers.length;
+        if (!n) {
+          return;
+        }
+        var style = getComputedStyle(els.board);
+        var w = els.board.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+        var h = els.board.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+        var best = { size: 0, cols: 1 };
+        for (var cols = 1; cols <= n; cols++) {
+          var rows = Math.ceil(n / cols);
+          var size = Math.min(w / (cols + (cols - 1) * 0.15), h / (rows + (rows - 1) * 0.15));
+          if (size > best.size) {
+            best = { size: size, cols: cols };
+          }
+        }
+        var size = Math.floor(best.size);
+        els.slots.style.setProperty('--cols', best.cols);
+        els.slots.style.setProperty('--size', size + 'px');
+        els.slots.style.setProperty('--gap', Math.floor(size * 0.15) + 'px');
+      }
+
+      function renderSlots() {
+        els.slots.innerHTML = '';
+        for (var i = 0; i < numbers.length; i++) {
+          var slot = document.createElement('div');
+          slot.className = 'slot';
+          if (i < revealed) {
+            slot.className = 'slot filled' + (i === revealed - 1 ? ' last' : '');
+            slot.textContent = numbers[i];
+          }
+          els.slots.appendChild(slot);
+        }
+        layoutSlots();
+      }
+
+      function updateControls() {
+        els.counter.textContent = numbers.length ? revealed + ' / ' + numbers.length : '';
+        var done = revealed >= numbers.length;
+        els.bingo.textContent = done ? 'KRAJ' : 'BINGO';
+        els.bingo.disabled = busy || done || !numbers.length;
+        els.reset.disabled = busy || !numbers.length;
+        if (!busy && !els.bingo.disabled && document.activeElement !== els.reset) {
+          els.bingo.focus();
+        }
+      }
+
+      function disarmReset() {
+        resetArmed = false;
+        els.reset.textContent = 'Nova igra';
+        clearTimeout(resetTimer);
+      }
+
+      function onReset() {
+        if (busy) {
+          return;
+        }
+        if (!resetArmed) {
+          resetArmed = true;
+          els.reset.textContent = 'Sigurno? Pritisni opet';
+          resetTimer = setTimeout(disarmReset, 4000);
+          return;
+        }
+        disarmReset();
+        revealed = 0;
+        saveState();
+        renderSlots();
+        updateControls();
+        els.bingo.focus();
+      }
+
+      function reveal() {
+        if (busy || !numbers.length || revealed >= numbers.length) {
+          return;
+        }
+        disarmReset();
+        busy = true;
+        updateControls();
+        var index = revealed;
+        var value = numbers[index];
+        var slot = els.slots.children[index];
+        var prev = els.slots.querySelector('.last');
+        if (prev) {
+          prev.className = 'slot filled';
+        }
+
+        var big = els.big;
+        big.className = '';
+        big.style.transform = '';
+        big.textContent = value;
+        void big.offsetWidth;
+        big.className = 'show';
+
+        setTimeout(function () {
+          var from = big.getBoundingClientRect();
+          var to = slot.getBoundingClientRect();
+          var scale = to.width / from.width;
+          var dx = (to.left + to.width / 2) - (from.left + from.width / 2);
+          var dy = (to.top + to.height / 2) - (from.top + from.height / 2);
+          big.className = 'show fly';
+          big.style.transform = 'translate(' + dx + 'px, ' + dy + 'px) scale(' + scale + ')';
+
+          var finished = false;
+          function finish() {
+            if (finished) {
+              return;
+            }
+            finished = true;
+            slot.textContent = value;
+            slot.className = 'slot filled last';
+            big.className = '';
+            big.style.transform = '';
+            revealed = index + 1;
+            saveState();
+            busy = false;
+            updateControls();
+          }
+          big.addEventListener('transitionend', function handler(e) {
+            if (e.propertyName === 'transform') {
+              big.removeEventListener('transitionend', handler);
+              finish();
+            }
+          });
+          setTimeout(finish, 1200);
+        }, 1800);
+      }
+
+      function load() {
+        draw = null;
+        numbers = [];
+        revealed = 0;
+        els.slots.innerHTML = '';
+        els.round.textContent = 'Učitavanje…';
+        els.date.textContent = '';
+        showMessage('Dohvaćam rezultate s lutrija.hr…', false);
+        updateControls();
+
+        fetch(URL, { cache: 'no-store' })
+          .then(function (res) {
+            if (!res.ok) {
+              throw new Error('HTTP ' + res.status);
+            }
+            return res.text();
+          })
+          .then(function (html) {
+            var latest = findLatestDraw(html);
+            if (!latest) {
+              throw new Error('Nema podataka za Bingo 15 od 90.');
+            }
+            draw = latest;
+            numbers = latest.results[0].slice();
+            var saved = loadState();
+            if (saved && saved.drawId === draw.drawId && saved.revealed <= numbers.length) {
+              revealed = saved.revealed;
+            }
+            els.round.textContent = 'Kolo: ' + draw.drawNumber;
+            els.date.textContent = formatDate(draw.drawTime);
+            hideMessage();
+            renderSlots();
+            updateControls();
+            els.bingo.focus();
+          })
+          .catch(function (err) {
+            els.round.textContent = 'Bingo 15 od 90';
+            showMessage('Ne mogu dohvatiti rezultate. ' + (err && err.message ? err.message : ''), true);
+          });
+      }
+
+      els.bingo.addEventListener('click', reveal);
+      els.reset.addEventListener('click', onReset);
+      els.retry.addEventListener('click', load);
+
+      document.addEventListener('keydown', function (e) {
+        var key = e.key || '';
+        var code = e.keyCode;
+        var active = document.activeElement;
+        var onButton = active && active.tagName === 'BUTTON';
+        if (key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown' ||
+            code === 37 || code === 38 || code === 39 || code === 40) {
+          e.preventDefault();
+          if (els.message.className === 'show') {
+            els.retry.focus();
+          } else if (active === els.bingo) {
+            els.reset.focus();
+          } else {
+            els.bingo.focus();
+          }
+          if (active === els.reset) {
+            disarmReset();
+          }
+          return;
+        }
+        if (!onButton && (key === 'Enter' || key === ' ' || code === 13 || code === 32)) {
+          e.preventDefault();
+          reveal();
+        }
+      });
+
+      window.addEventListener('resize', layoutSlots);
+
+      load();
+    })();
+  </script>
+</body>
+</html>
