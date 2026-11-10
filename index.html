@@ -14,6 +14,9 @@
       --accent: #ffcc33;
       --accent-text: #1a1300;
       --focus: #4fc3ff;
+      --ball-yellow: #ffc806;
+      --ball-white: #ffffff;
+      --ball-text: #1a1300;
     }
     * {
       box-sizing: border-box;
@@ -73,11 +76,21 @@
       font-variant-numeric: tabular-nums;
     }
     .slot.filled {
-      background: var(--accent);
-      color: var(--accent-text);
+      color: var(--ball-text);
+    }
+    .slot.yellow,
+    #big.yellow {
+      background: var(--ball-yellow);
+    }
+    .slot.white,
+    #big.white {
+      background: var(--ball-white);
     }
     .slot.last {
       box-shadow: 0 0 0 calc(var(--size, 60px) * 0.08) var(--text);
+    }
+    .slot.white.last {
+      box-shadow: 0 0 0 calc(var(--size, 60px) * 0.08) var(--ball-yellow);
     }
     #big {
       position: absolute;
@@ -90,8 +103,8 @@
       align-items: center;
       justify-content: center;
       border-radius: 50%;
-      background: var(--accent);
-      color: var(--accent-text);
+      background: var(--ball-yellow);
+      color: var(--ball-text);
       font-size: 42vh;
       font-weight: 800;
       font-variant-numeric: tabular-nums;
@@ -180,6 +193,7 @@
     (function () {
       var URL = 'https://www.lutrija.hr/hl/rezultati/bingo';
       var GAME_ID = 7000;
+      var YELLOW_COUNT = 35;
       var STORE_KEY = 'bingo-state';
 
       var els = {
@@ -385,13 +399,17 @@
         els.slots.style.setProperty('--gap', Math.floor(size * 0.15) + 'px');
       }
 
+      function colorClass(index) {
+        return index < YELLOW_COUNT ? 'yellow' : 'white';
+      }
+
       function renderSlots() {
         els.slots.innerHTML = '';
         for (var i = 0; i < numbers.length; i++) {
           var slot = document.createElement('div');
           slot.className = 'slot';
           if (i < revealed) {
-            slot.className = 'slot filled' + (i === revealed - 1 ? ' last' : '');
+            slot.className = 'slot filled ' + colorClass(i) + (i === revealed - 1 ? ' last' : '');
             slot.textContent = numbers[i];
           }
           els.slots.appendChild(slot);
@@ -446,15 +464,16 @@
         var slot = els.slots.children[index];
         var prev = els.slots.querySelector('.last');
         if (prev) {
-          prev.className = 'slot filled';
+          prev.className = 'slot filled ' + colorClass(index - 1);
         }
 
+        var color = colorClass(index);
         var big = els.big;
         big.className = '';
         big.style.transform = '';
         big.textContent = value;
         void big.offsetWidth;
-        big.className = 'show';
+        big.className = 'show ' + color;
 
         setTimeout(function () {
           var from = big.getBoundingClientRect();
@@ -462,7 +481,7 @@
           var scale = to.width / from.width;
           var dx = (to.left + to.width / 2) - (from.left + from.width / 2);
           var dy = (to.top + to.height / 2) - (from.top + from.height / 2);
-          big.className = 'show fly';
+          big.className = 'show fly ' + color;
           big.style.transform = 'translate(' + dx + 'px, ' + dy + 'px) scale(' + scale + ')';
 
           var finished = false;
@@ -472,7 +491,7 @@
             }
             finished = true;
             slot.textContent = value;
-            slot.className = 'slot filled last';
+            slot.className = 'slot filled last ' + color;
             big.className = '';
             big.style.transform = '';
             revealed = index + 1;
